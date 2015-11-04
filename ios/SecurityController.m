@@ -40,7 +40,6 @@ RCT_EXPORT_METHOD(generatePair:(NSString *)inputKeyType callback:(RCTResponseSen
                                         encoding:NSUTF8StringEncoding] ;
   
   callback(@[publicKeyTagString]);
-  NSLog(@"I made some changes") ;
   
 }
 
