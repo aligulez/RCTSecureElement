@@ -16,7 +16,10 @@ var {
 } = React;
 
 var iosParameters = {
-  clearText: "qwertyuiopasdfghjklzxcvbnm qwertyuiopasdfghjklzxcvbnm qwertyuiopasdfghjklzxcvbnm qwertyuiopasdfghjklzxcvbnm",
+  clearText: "abcdefghijklmnoprs abcdefghijklmnoprs abcdefghijklmnoprs abcdefghijklmnoprs",
+  clearTextForSigning: "bearandfox",
+  signedHash: "default",
+  verified: "default",
   publicKey: "default",
   encryptedText: "default",
   decryptedText: "default"
@@ -54,12 +57,42 @@ var RCTSecureElement = React.createClass({
     });
 
   },
+  sign: function(){
+
+     NativeModules.SecurityController.sign(iosParameters.clearTextForSigning, (text) => {
+
+      iosParameters.signedHash = text ;      
+      //console.log(iosParameters.signedHash) ;
+
+    });
+
+  },
+  verify: function(){
+
+     NativeModules.SecurityController.verify(iosParameters.clearTextForSigning,iosParameters.publicKey,iosParameters.signedHash, (text) => {
+
+      iosParameters.verified = text ;      
+      console.log(iosParameters.verified) ;
+      
+    });
+
+  },
   render: function() {
     return (
       <View style={styles.container}>
         <TouchableHighlight onPress={this.generateKeyPairs} underlayColor="white">
           <Text style={styles.welcome}>
            Generate Key Pairs
+          </Text>
+        </TouchableHighlight>
+        <TouchableHighlight onPress={this.sign} underlayColor="white">
+          <Text style={styles.welcome}>
+           Sign
+          </Text>
+        </TouchableHighlight>
+        <TouchableHighlight onPress={this.verify} underlayColor="white">
+          <Text style={styles.welcome}>
+           Verify
           </Text>
         </TouchableHighlight>
         <TouchableHighlight onPress={this.encrypt} underlayColor="white">

@@ -8,6 +8,12 @@
 
 #import <UIKit/UIKit.h>
 #import "RCTBridgeModule.h"
+#import <Security/Security.h>
+#import <CoreFoundation/CoreFoundation.h>
+#import <CommonCrypto/CommonDigest.h>
+#import <CommonCrypto/CommonCryptor.h>
+
+#define kChosenDigestLength		CC_SHA1_DIGEST_LENGTH
 
 @interface SecurityController :  NSObject <RCTBridgeModule>{
   SecKeyRef publicKey;

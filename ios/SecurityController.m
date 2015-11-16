@@ -25,14 +25,13 @@ RCT_EXPORT_MODULE();
 
 RCT_EXPORT_METHOD(generatePair:(NSString *)inputKeyType callback:(RCTResponseSenderBlock)callback)
 {
-
   keyType = inputKeyType ;
-  
-//  BUFFER_SIZE = len ;
-//  CIPHER_BUFFER_SIZE = len * 16 ;
   
   privateTag = [[NSData alloc] initWithBytes:privateKeyIdentifier length:sizeof(privateKeyIdentifier)];
   publicTag = [[NSData alloc] initWithBytes:publicKeyIdentifier length:sizeof(publicKeyIdentifier)];
+  
+  //[self verifyTestRun] ;
+  //[self testRun] ;
   
   [self getPublicKeyRef] ;
   NSString *publicKeyTagString = [[NSString alloc] initWithBytes:publicKeyIdentifier
@@ -40,7 +39,6 @@ RCT_EXPORT_METHOD(generatePair:(NSString *)inputKeyType callback:(RCTResponseSen
                                         encoding:NSUTF8StringEncoding] ;
   
   callback(@[publicKeyTagString]);
-  
 }
 
 RCT_EXPORT_METHOD(encryptInputString:(NSString *)inputString inputKeyTag:(NSString *)inputKeyTag callback:(RCTResponseSenderBlock)callback)
@@ -75,6 +73,7 @@ RCT_EXPORT_METHOD(encryptInputString:(NSString *)inputString inputKeyTag:(NSStri
                          &cipherBufferSize
                          );
   
+  
 //CONVERT TO NSSTRING
   NSData *theData = [NSData dataWithBytes:(const void *)cipherBuffer length:CIPHER_BUFFER_SIZE];
   NSString *base64String = [theData base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength];
@@ -108,7 +107,37 @@ RCT_EXPORT_METHOD(decryptCipher:(NSString *)inputCipher callback:(RCTResponseSen
   callback(@[clearText]);
 }
 
--(void) testRun {
+RCT_EXPORT_METHOD(sign:(NSString *)inputString callback:(RCTResponseSenderBlock)callback){
+ 
+  NSData *plainText = [inputString dataUsingEncoding:NSUTF8StringEncoding];
+  NSData *signedHash = [self getSignatureBytes:plainText] ;
+  NSString *base64String = [[NSString alloc] initWithData:signedHash encoding:NSNEXTSTEPStringEncoding];
+
+  callback(@[base64String]) ;
+}
+
+RCT_EXPORT_METHOD(verify:(NSString *)inputString inputKeyTag:(NSString *)publicKeyTag signedHash:(NSString *)signedHashString callback:(RCTResponseSenderBlock)callback){
+  
+  //set public key from input identifier
+  publicTag = [publicKeyTag dataUsingEncoding:NSUTF8StringEncoding];
+  SecKeyRef publicKeyRef = [self getPublicKeyRef] ;
+
+  //convert plaintext to nsdata
+  NSData *plainText = [inputString dataUsingEncoding:NSUTF8StringEncoding] ;
+  
+  //convert signedHash to nsdata
+  NSData *signedHash = [signedHashString dataUsingEncoding:NSNEXTSTEPStringEncoding] ;
+  
+  BOOL sanityCheck = [self verifySignature:plainText secKeyRef:publicKeyRef signature:signedHash] ;
+  
+  NSString *base64String = sanityCheck ? @"YES" : @"NO" ;
+  
+  callback(@[base64String]) ;
+}
+
+#pragma mark - Test methods without data type conversion
+
+- (void) testRun {
   
 //INITIALISE
   privateTag = [[NSData alloc] initWithBytes:privateKeyIdentifier length:sizeof(privateKeyIdentifier)];
@@ -164,10 +193,103 @@ RCT_EXPORT_METHOD(decryptCipher:(NSString *)inputCipher callback:(RCTResponseSen
   NSLog(@"clearText -> %@",[NSString stringWithFormat:@"%s", decryptedBuffer]) ;
 }
 
-#pragma mark - iOS side security methods
-//http://stackoverflow.com/questions/10072124/iphone-how-to-encrypt-nsdata-with-public-key-and-decrypt-with-private-key
+- (void) verifyTestRun {
+  
+  NSData *plainText = [@"bear and fox" dataUsingEncoding:NSUTF8StringEncoding];
 
--(SecKeyRef)getPublicKeyRef {
+  NSData *signedHash = [self getSignatureBytes:plainText] ;
+  
+  BOOL sanityCheck = [self verifySignature:plainText secKeyRef:[self getPublicKeyRef] signature:signedHash] ;
+  
+}
+
+#pragma mark - iOS side Verify & Sign methods
+
+- (NSData *)getSignatureBytes:(NSData *)plainText {
+  
+  //Initialise
+  OSStatus sanityCheck = noErr;
+  NSData * signedHash = nil;
+  uint8_t * signedHashBytes = NULL;
+  size_t signedHashBytesSize = 0;
+  SecKeyRef privateKeyRef = NULL;
+  
+  //private key allocation.
+  privateKeyRef = [self getPrivateKeyRef];
+  
+  signedHashBytesSize = SecKeyGetBlockSize(privateKeyRef);
+  
+  // Malloc a buffer to hold signature.
+  signedHashBytes = malloc( signedHashBytesSize * sizeof(uint8_t) );
+  memset((void *)signedHashBytes, 0x0, signedHashBytesSize);
+  
+  // Sign the SHA1 hash.
+  sanityCheck = SecKeyRawSign(privateKeyRef,
+                              PADDING,
+                              (const uint8_t *)[[self getHashBytes:plainText] bytes],
+                              kChosenDigestLength,
+                              (uint8_t *)signedHashBytes,
+                              &signedHashBytesSize
+                              );
+  
+  //  LOGGING_FACILITY1( sanityCheck == noErr, @"Problem signing the SHA1 hash, OSStatus == %d.", sanityCheck );
+  
+  // Build up signed SHA1 blob.
+  signedHash = [NSData dataWithBytes:(const void *)signedHashBytes length:(NSUInteger)signedHashBytesSize];
+  if (signedHashBytes) free(signedHashBytes);
+  
+  return signedHash;
+}
+
+- (NSData *)getHashBytes:(NSData *)plainText {
+  
+  CC_SHA1_CTX ctx;
+  uint8_t * hashBytes = NULL;
+  NSData * hash = nil;
+  
+  // Malloc a buffer to hold hash.
+  hashBytes = malloc( kChosenDigestLength * sizeof(uint8_t) );
+  memset((void *)hashBytes, 0x0, kChosenDigestLength);
+  
+  
+  // Initialize the context.
+  CC_SHA1_Init(&ctx);
+  // Perform the hash.
+  CC_SHA1_Update(&ctx, (void *)[plainText bytes], [plainText length]);
+  // Finalize the output.
+  CC_SHA1_Final(hashBytes, &ctx);
+  
+  
+  // Build up the SHA1 blob.
+  hash = [NSData dataWithBytes:(const void *)hashBytes length:(NSUInteger)kChosenDigestLength];
+  
+  if (hashBytes) free(hashBytes);
+  
+  return hash;
+}
+
+- (BOOL)verifySignature:(NSData *)plainText secKeyRef:(SecKeyRef)publicKey signature:(NSData *)sig {
+  size_t signedHashBytesSize = 0;
+  OSStatus sanityCheck = noErr;
+  
+  // Get the size of the assymetric block.
+  signedHashBytesSize = SecKeyGetBlockSize(publicKey);
+  
+  sanityCheck = SecKeyRawVerify(  publicKey,
+                                PADDING,
+                                (const uint8_t *)[[self getHashBytes:plainText] bytes],
+                                kChosenDigestLength,
+                                (const uint8_t *)[sig bytes],
+                                signedHashBytesSize
+                                );
+  
+  return (sanityCheck == noErr) ? YES : NO;
+}
+
+
+#pragma mark - iOS side Encryption & Decryption methods
+
+- (SecKeyRef)getPublicKeyRef {
   
   OSStatus sanityCheck = noErr;
   SecKeyRef publicKeyReference = NULL;
@@ -200,11 +322,6 @@ RCT_EXPORT_METHOD(decryptCipher:(NSString *)inputCipher callback:(RCTResponseSen
   return publicKeyReference;
 }
 
-
-/* Borrowed from:
- * https://developer.apple.com/library/mac/#documentation/security/conceptual/CertKeyTrustProgGuide/iPhone_Tasks/iPhone_Tasks.html
- */
-
 - (SecKeyRef)getPrivateKeyRef {
   OSStatus resultCode = noErr;
   SecKeyRef privateKeyReference = NULL;
@@ -235,7 +352,6 @@ RCT_EXPORT_METHOD(decryptCipher:(NSString *)inputCipher callback:(RCTResponseSen
   
   return privateKeyReference;
 }
-
 
 - (void)generateKeyPair:(NSUInteger)keySize {
   OSStatus sanityCheck = noErr;
@@ -281,5 +397,69 @@ RCT_EXPORT_METHOD(decryptCipher:(NSString *)inputCipher callback:(RCTResponseSen
 }
 
 
+
+/*
+- (NSData *)signData:(NSData *)data withIndentity:(SecIdentityRef)identity
+{
+  // FIXME: cleanup cf leaks
+  SecGroupTransformRef group = SecTransformCreateGroupTransform();
+  CFReadStreamRef readStream = NULL;
+  SecTransformRef readTransform = NULL;
+  SecTransformRef signingTransform = NULL;
+  CFErrorRef err = NULL;
+  
+  SecKeyRef privateKey;
+  OSStatus ret = SecIdentityCopyPrivateKey(identity, &privateKey);
+  if (ret) {
+    NSLog(@"fail");
+    return nil;
+  }
+  
+  // Setup our input stream as well as an input transform
+  readStream = CFReadStreamCreateWithBytesNoCopy(kCFAllocatorDefault, [data bytes], [data length], kCFAllocatorNull);
+  
+  readTransform = SecTransformCreateReadTransformWithReadStream(readStream);
+  
+  // Setup a signing transform
+  signingTransform = SecSignTransformCreate(privateKey, &err);
+  if (err) {
+    NSLog(@"SecSignTransformCreate failed: %@", (__bridge NSError *)err);
+    return nil;
+  }
+  SecTransformSetAttribute(signingTransform, kSecInputIsDigest, kCFBooleanTrue, &err);
+  if (err) {
+    NSLog(@"SecTransformSetAttribute:kSecInputIsDigest failed: %@", (__bridge NSError *)err);
+    return nil;
+  }
+  SecTransformSetAttribute(signingTransform, kSecDigestTypeAttribute, kSecDigestSHA1, &err);
+  if (err) {
+    NSLog(@"SecTransformSetAttribute:kSecDigestTypeAttribute failed: %@", (__bridge NSError *)err);
+    return nil;
+  }
+  
+  // Connect read and signing transform; Have read pass its data to the signer
+  SecTransformConnectTransforms(readTransform, kSecTransformOutputAttributeName,
+                                signingTransform, kSecTransformInputAttributeName,
+                                group, &err);
+  if (err) {
+    NSLog(@"SecTransformConnectTransforms failed: %@", (__bridge NSError *)err);
+    return nil;
+  }
+  
+  // Execute the sequence of transforms (group)
+  // The last one in the connected sequence is the return value
+  CFTypeRef cfRet = SecTransformExecute(group, &err);
+  if (err) {
+    NSLog(@"SecTransformExecute failed: %@", (__bridge NSError *)err);
+    return nil;
+  }
+  return (__bridge_transfer NSData *)cfRet;
+}
+*/
+
+/* Code Borrowed from:
+ * http://stackoverflow.com/questions/10072124/iphone-how-to-encrypt-nsdata-with-public-key-and-decrypt-with-private-key
+ * https://developer.apple.com/library/mac/#documentation/security/conceptual/CertKeyTrustProgGuide/iPhone_Tasks/iPhone_Tasks.html
+ */
 
 @end
